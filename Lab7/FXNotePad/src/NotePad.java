@@ -4,6 +4,9 @@
  */
 
 
+import java.awt.Toolkit;
+import java.awt.datatransfer.Clipboard;
+import java.awt.datatransfer.DataFlavor;
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.File;
@@ -12,8 +15,6 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.util.Optional;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 import javafx.application.Application;
 import javafx.application.Platform;
 import javafx.beans.InvalidationListener;
@@ -55,6 +56,7 @@ public class NotePad extends Application{
     Menu file;
     Menu edit;
     Menu view;
+    Menu javaM;
     Menu help;
     
     MenuItem f1New;
@@ -69,7 +71,8 @@ public class NotePad extends Application{
     MenuItem e6Delete;
     MenuItem e7SelectAll;
     MenuItem h1About;
-    MenuItem h2Compile;
+    MenuItem j1Compile;
+    MenuItem j2Run;
     
     CheckMenuItem terminal;
     
@@ -90,19 +93,48 @@ public class NotePad extends Application{
     BufferedReader br;
     FileWriter fw;
     BufferedWriter bw;
-    boolean saved;
-    String fileName = "";
+    boolean isSaved;
+    String fileName = "Untitled";
     String path = "";
+    Thread clip;
+    String oldTxt = "";
+    String newTxt = "";
+    
+    @Override
+    public void stop() throws Exception {
+        clip.stop();    // closes the thread
+        super.stop(); //To change body of generated methods, choose Tools | Templates.
+    }
 
     @Override
     public void init() {
-        saved = true;
-        myClipBoard = "";
+        // thread to get the string clipboard
+        clip = new Thread(new Runnable(){
+            @Override
+            public void run() {
+                while(true){
+                    Toolkit toolkit = Toolkit.getDefaultToolkit();
+                    Clipboard clipboard = toolkit.getSystemClipboard();
+                    String result = "";
+                    try {
+                        result = (String) clipboard.getData(DataFlavor.stringFlavor);
+                    } catch (Exception ex) {}
+                    try {
+                        Thread.sleep(100);
+                    } catch (InterruptedException ex) {}
+                    myClipBoard = result;
+                }
+            }
+        });
+        clip.start();
+                
+        isSaved = true;
         bar = new MenuBar();    // menu bar
         // menus to be set in menu bar
         file = new Menu("File");
         edit = new Menu("Edit");
         view = new Menu("View");
+        javaM = new Menu("Java");
         help = new Menu("Help");
         // items in menu file
         f1New = new MenuItem("New");
@@ -119,7 +151,9 @@ public class NotePad extends Application{
         e7SelectAll = new MenuItem("Select All");
         // items in menu help
         h1About = new MenuItem("About");
-        h2Compile = new MenuItem("Compile + Run");
+        // items in menu java
+        j1Compile = new MenuItem("Compile");
+        j2Run = new MenuItem("Run");
         // view
         terminal = new CheckMenuItem("Show Terminal");
         // serparator menu item
@@ -136,21 +170,21 @@ public class NotePad extends Application{
         file.getItems().addAll(f1New, f2Open, f3Save, sep1, f4Exit);
         edit.getItems().addAll(e1Undo, e2Redo, sep2, e3Cut, e4Copy, e5Paste, e6Delete, sep3, e7SelectAll);
         view.getItems().add(terminal);
-        help.getItems().addAll(h1About, h2Compile);
+        javaM.getItems().addAll(j1Compile,j2Run);
+        help.getItems().addAll(h1About);
 
         // adding menus to menu bar
-        bar.getMenus().addAll(file, edit, view, help);
+        bar.getMenus().addAll(file, edit, view, javaM, help);
         // adding bar, text area, label to borderpane
         pane.setTop(bar);
         pane.setCenter(txt);
         output = new TextArea();
         output.setEditable(false);
         output.setVisible(false);
-//        output.ba
         output.setId("out");
         pane.setBottom(new VBox(output, copyRight));
         
-        // shortcut for new
+        // shortcut for menu items
         f1New.setAccelerator(KeyCombination.keyCombination("Ctrl+N"));
         f2Open.setAccelerator(KeyCombination.keyCombination("Ctrl+O"));
         f3Save.setAccelerator(KeyCombination.keyCombination("Ctrl+S"));
@@ -165,7 +199,8 @@ public class NotePad extends Application{
         e7SelectAll.setAccelerator(KeyCombination.keyCombination("Ctrl+Shift+A"));
 
         h1About.setAccelerator(KeyCombination.keyCombination("Ctrl+F1"));
-        h2Compile.setAccelerator(KeyCombination.keyCombination("Ctrl+F9"));
+        j1Compile.setAccelerator(KeyCombination.keyCombination("Ctrl+F9"));
+        j2Run.setAccelerator(KeyCombination.keyCombination("Ctrl+F10"));
 
         terminal.setAccelerator(KeyCombination.keyCombination("Ctrl+t"));
         
@@ -175,9 +210,10 @@ public class NotePad extends Application{
         dontSave = new ButtonType("Don't Save");
         cancel = new ButtonType("Cancel"); 
     }
+    
     @Override
     public void start(Stage primaryStage) { 
-        s = new Scene(pane, 300, 400);
+        s = new Scene(pane, 600, 400);
         e1Undo.setDisable(true);
         e2Redo.setDisable(true);
         e3Cut.setDisable(true);
@@ -185,17 +221,19 @@ public class NotePad extends Application{
         e5Paste.setDisable(true);
         e6Delete.setDisable(true);
         e7SelectAll.setDisable(true);        
-//        txt.
-
+        
+        // set the terminal height as a ratio of the scene height
         if(output.isVisible())
             output.setPrefHeight(s.getHeight()/5);
         else
             output.setPrefHeight(0);
 
+        // add css file
         File f = new File("src/Style.css");
         s.getStylesheets().clear();
         s.getStylesheets().add("file:///" + f.getAbsolutePath().replace("\\", "/"));
 
+        // reset the terminal height ratio whenever the scene hight is changed
         s.heightProperty().addListener(new ChangeListener<Number>() {
             @Override
             public void changed(ObservableValue<? extends Number> observable, Number oldValue, Number newValue) {
@@ -205,6 +243,8 @@ public class NotePad extends Application{
                     output.setPrefHeight(0);                
             }
         });
+
+        // reset the terminal height ratio whenever the terminal visibility is changed
         output.visibleProperty().addListener( new InvalidationListener(){
 
             @Override
@@ -217,11 +257,11 @@ public class NotePad extends Application{
         });
 
         primaryStage.setOnCloseRequest(evt -> {
-            // prevent window from closing
+            // prevent window from closing before executing the exit routine
             evt.consume();
             f4Exit.fire();
         });
-        // dialoge
+        // save dialoge
         dialog = new Dialog<ButtonType>();
         dialog.setTitle("Save");
         dialog.setContentText("Do you want to save last changes?");
@@ -230,81 +270,27 @@ public class NotePad extends Application{
         txt.setOnMouseMoved(new EventHandler<MouseEvent>(){
             @Override
             public void handle(MouseEvent event) {
-                if(!txt.isUndoable())
-                    e1Undo.setDisable(true);
-                else
-                    e1Undo.setDisable(false);
-
-                if(!txt.isRedoable())
-                    e2Redo.setDisable(true);
-                else
-                    e2Redo.setDisable(false);
-                if(myClipBoard.length() == 0)
-                    e5Paste.setDisable(true);
-                else
-                    e5Paste.setDisable(false);
-                    
-                if(txt.getSelectedText().length() == 0){
-                    e3Cut.setDisable(true);
-                    e4Copy.setDisable(true);
-                    e6Delete.setDisable(true);
-                }
-                else{
-                    e3Cut.setDisable(false);
-                    e4Copy.setDisable(false);
-                    e6Delete.setDisable(false);
-                }
-                
-                if(txt.getText().length() == 0)
-                    e7SelectAll.setDisable(true);
-                else
-                    e7SelectAll.setDisable(false);
+                setEn();                // in edit menu --> enable and disable menu items
             }
-            
         });
         txt.setOnKeyTyped(new EventHandler<KeyEvent>(){
             @Override
             public void handle(KeyEvent event) {
-                
-                saved = false;
-                primaryStage.setTitle("FX NotePad "+fileName + "*");                
-                
-                if(!txt.isUndoable())
-                    e1Undo.setDisable(true);
-                else
-                    e1Undo.setDisable(false);
-
-                if(!txt.isRedoable())
-                    e2Redo.setDisable(true);
-                else
-                    e2Redo.setDisable(false);
-                if(myClipBoard.length() == 0)
-                    e5Paste.setDisable(true);
-                else
-                    e5Paste.setDisable(false);
-                    
-                if(txt.getSelectedText().length() == 0){
-                    e3Cut.setDisable(true);
-                    e4Copy.setDisable(true);
-                    e6Delete.setDisable(true);
+                // check if change happened in the text area --> not saved
+                oldTxt = newTxt;
+                newTxt = txt.getText();
+                if(!newTxt.equals(oldTxt)){
+                    isSaved = false;
+                    primaryStage.setTitle("*" + fileName + " - FX NotePad"); // add "*" before file name if not saved
                 }
-                else{
-                    e3Cut.setDisable(false);
-                    e4Copy.setDisable(false);
-                    e6Delete.setDisable(false);
-                }
-                
-                if(txt.getText().length() == 0)
-                    e7SelectAll.setDisable(true);
-                else
-                    e7SelectAll.setDisable(false);
+                setEn();                // in edit menu --> enable and disable menu items
             }
         });
-
         
         terminal.setOnAction(new EventHandler<ActionEvent>() {
             @Override
             public void handle(ActionEvent event) {
+                // show and hide terminal
                 if(terminal.isSelected())
                     output.setVisible(true);
                 else
@@ -316,68 +302,79 @@ public class NotePad extends Application{
             @Override
             public void handle(ActionEvent event) {
 
-//                if(txt.getText().length() == 0 && !txt.isUndoable()){                    
-//                    System.out.println("E");
-//                }
-                if(!saved){
+                if(!isSaved){
+                    // if not saved --> show ask to save dialog
                     Optional<ButtonType> result = dialog.showAndWait();
-//                    System.out.println(result.get().getButtonData());
                     if(!result.isPresent()){
+                        // do nothing
                     }
-
                     else if(result.get() == save){
+                        // if save button save is clicked --> save then initialize to a new document
                         f3Save.fire();
-                        if(saved){
+                        if(isSaved){
                             txt.clear();              
-                            fileName = "";
+                            fileName = "Untitled";
                             path = "";
                         }
-
                     }
                     else if(result.get() == dontSave){
+                        // if don't save is clicked --> re initialize to a new document without saving
                         txt.clear();
-                        saved = true;
-                        fileName = "";
+                        isSaved = true;
+                        oldTxt = "";
+                        newTxt = "";
+                        fileName = "Untitled";
                         path = "";
                     }
                     else if(result.get() == cancel){
+                        // if cancel is clicked --> just close the dialog and return
                         dialog.close();
+                        return;
                     }                
                 }
-                primaryStage.setTitle("FX NotePad "+fileName);
+                else{
+                    // if saved --> reinitialize to a new document
+                    fileName = "Untitled";
+                    path = "";
+                    oldTxt= newTxt = "";
+                    txt.clear();
+                }
+                primaryStage.setTitle(fileName + " - FX NotePad ");         // set the title
             }
         });
 
         f2Open.setOnAction(new EventHandler<ActionEvent>() {
             @Override
             public void handle(ActionEvent event) {
-//                fileChooser.showOpenDialog(primaryStage);
-                if(!saved)
+                // save the file is not saved
+                if(!isSaved)
                     f1New.fire();
-                if(saved){
-                    txt.clear();
+                // if saved show open dialog
+                if(isSaved){
                     fileChooser.getExtensionFilters().addAll(new ExtensionFilter("All Files", "*.*"));
                     try{
-                        File f = fileChooser.showOpenDialog(primaryStage);
-                        fileName = f.getName();
-                        path = f.getParent();
-                        fr = new FileReader(f);
-                        br = new BufferedReader(fr);
+                        File f = fileChooser.showOpenDialog(primaryStage);      // choose the file to open
+                        fileName = f.getName();                                 // get file name
+                        txt.clear();                                            // clear the text area
+                        path = f.getParent();                                   // get directory path
+                        fr = new FileReader(f);                                 // file reader
+                        br = new BufferedReader(fr);                            // buffer reader to read the file
                         String line;
                         do{
-                            line = br.readLine();
+                            line = br.readLine();                               // read lines
                             if(line != null)
-                                txt.appendText(line+"\n");
+                                txt.appendText(line+"\n");                      // set on text area
 
                         }while(line != null);
-                        br.close();
-                        fr.close();
-                        saved = true;
-                        primaryStage.setTitle("FX NotePad "+fileName);                    
+                        br.close();                                             // close the buffer reader
+                        fr.close();                                             // close the file reader
+                        isSaved = true;                                         // issaved flag is true
+                        // initialize old and new txt
+                        oldTxt = txt.getText();
+                        newTxt = txt.getText();
+                        primaryStage.setTitle(fileName + " - FX NotePad ");     // set the title
                     }
-                    catch(Exception e){
-                        System.out.println(e);
-                    }
+                    catch(Exception e){}
                 }
             }
         });
@@ -385,53 +382,49 @@ public class NotePad extends Application{
         f3Save.setOnAction(new EventHandler<ActionEvent>() {
             @Override
             public void handle(ActionEvent event) {
-//                fileChooser.showSaveDialog(primaryStage);
                 try{
                     fileChooser.getExtensionFilters().addAll(new ExtensionFilter("All Files", "*.*"));
-                    File f = fileChooser.showSaveDialog(primaryStage);
-                    fileName = f.getName();
-                    path = f.getParent();
-                    fw = new FileWriter(f);
-                    bw = new BufferedWriter(fw);
-                    bw.write(txt.getText());
-                    bw.close();
-                    fw.close();
-                    saved = true;
-                    primaryStage.setTitle("FX NotePad "+fileName);
+                    File f = fileChooser.showSaveDialog(primaryStage);          // choose the file name to be saved
+                    fileName = f.getName();                                     // get file name
+                    path = f.getParent();                                       // get directory path
+                    fw = new FileWriter(f);                                     // file writer
+                    bw = new BufferedWriter(fw);                                // buffer writer for the file writer
+                    bw.write(txt.getText());                                    // write to buffer writer
+                    bw.close();                                                 // close buffer writer
+                    fw.close();                                                 // close file writer
+                    isSaved = true;                                             // set the issaved flag to true
+                    // initialize old and new txt
+                    oldTxt = txt.getText();
+                    newTxt = txt.getText();
+                    primaryStage.setTitle(fileName + " - FX NotePad ");         // set the title
                 }
-                catch(Exception e){
-                    System.out.println(e);
-                }                
+                catch(Exception e){}                
             }
         });
         
         f4Exit.setOnAction(new EventHandler<ActionEvent>() {
             @Override
             public void handle(ActionEvent event) {
-//                Platform.exit();
-//                if(txt.getText().length() == 0 && !txt.isUndoable()){                    
-//                    primaryStage.close();
-//                }
-                if(!saved){
+                if(!isSaved){
+                    // if not saved --> show ask to save dialog
                     Optional<ButtonType> result = dialog.showAndWait();
                     if(!result.isPresent()){
                     }
                     else if(result.get() == save){
+                        // if saved is clicked --> fire save menu item
                         f3Save.fire();
-                        if(saved)
-                            Platform.exit();
+                        if(isSaved)
+                            Platform.exit();        // exit if saved
                     }
                     else if(result.get() == dontSave){
-//                        primaryStage.close();
-                        Platform.exit();
-
+                        Platform.exit();            // if don't save is clicked --> just exit!
                     }
                     else if(result.get() == cancel){
-                        dialog.close();
+                        dialog.close();             // cancel is clicked --> just lcose the dialog!
                     }                
                 }
                 else
-                    Platform.exit();
+                    Platform.exit();                // if saved --> exit
             }
         });
         
@@ -439,7 +432,9 @@ public class NotePad extends Application{
             @Override
             public void handle(ActionEvent event) {
                 if(txt.isUndoable()){
-                    txt.undo();
+                    txt.undo();         // undo
+                    isSaved = false;
+                    primaryStage.setTitle("*" + fileName + " - FX NotePad"); 
                 }
             }
         });
@@ -448,7 +443,9 @@ public class NotePad extends Application{
             @Override
             public void handle(ActionEvent event) {
                 if(txt.isRedoable()){
-                    txt.redo();
+                    txt.redo();         // redo
+                    isSaved = false;
+                    primaryStage.setTitle("*" + fileName + " - FX NotePad"); 
                 }
             }
         });
@@ -456,29 +453,25 @@ public class NotePad extends Application{
         e3Cut.setOnAction(new EventHandler<ActionEvent>() {
             @Override
             public void handle(ActionEvent event) {
-                IndexRange r = txt.getSelection();
-                myClipBoard = txt.getSelectedText();
-                txt.deleteText(r);
-                
-//                txt.cut();
+                txt.cut();              // cut
+                isSaved = false;
+                primaryStage.setTitle("*" + fileName + " - FX NotePad"); 
             }
         });
         
         e4Copy.setOnAction(new EventHandler<ActionEvent>() {
             @Override
             public void handle(ActionEvent event) {
-                myClipBoard = txt.getSelectedText();  
-                
-//                txt.copy();
+                txt.copy();             // copy
             }
         });
         
         e5Paste.setOnAction(new EventHandler<ActionEvent>() {
             @Override
             public void handle(ActionEvent event) {
-                txt.insertText(txt.getCaretPosition(), myClipBoard);
-
-//                txt.paste();
+                txt.paste();            // paste
+                isSaved = false;
+                primaryStage.setTitle("*" + fileName + " - FX NotePad"); 
             }
         });
         
@@ -486,96 +479,140 @@ public class NotePad extends Application{
             @Override
             public void handle(ActionEvent event) {
                 IndexRange r = txt.getSelection();
-                txt.deleteText(r);
+                txt.deleteText(r);      // delete
+                isSaved = false;
+                primaryStage.setTitle("*" + fileName + " - FX NotePad"); 
             }
         });
         
         e7SelectAll.setOnAction(new EventHandler<ActionEvent>() {
             @Override
             public void handle(ActionEvent event) {
-                txt.selectAll();
+                txt.selectAll();        // select all
             }
         });
         
         h1About.setOnAction(new EventHandler<ActionEvent>() {
             @Override
             public void handle(ActionEvent event) {
-//                System.out.println("about");
+                // alert to show about information
                 Alert alert = new Alert(AlertType.INFORMATION);
                 alert.setTitle("About");
                 alert.setHeaderText("FX NotePad");
                 alert.setContentText("Developed by YSSH.");
                 alert.showAndWait();
-//                if (result.get() == ButtonType.OK){
-//                if (alert.showAndWait().get() == ButtonType.OK){
-//                    System.out.println("Save fistly");
-//                }
-//                else {
-//                        /*No changes had done*/                       
-//                    System.out.println("cancel");
-//                }
-
             }
         });
         
-        h2Compile.setOnAction(new EventHandler<ActionEvent>() {
+        j1Compile.setOnAction(new EventHandler<ActionEvent>() {
+            // compiles only
             @Override
             public void handle(ActionEvent event) {
                 String code = txt.getText();
-                output.clear();
-                terminal.setSelected(true);
-                output.setVisible(true);
+                if(code.isEmpty())
+                    return;
+                output.clear();                 // clear the terminal
+                terminal.setSelected(true);     // set terminal as selected
+                output.setVisible(true);        // show terminal if not shown
                 fileChooser.getExtensionFilters().addAll(new ExtensionFilter("All Files", "*.*"));
-//                String fileName = "Simple.java";
-                if(!saved){
-                    f3Save.fire();
+                if(!isSaved){
+                    f3Save.fire();              // save if not saved
                 }
-                if(saved){
-                    try{
-                        fw = new FileWriter(fileName);
-                        bw = new BufferedWriter(fw);
-                        bw.write(txt.getText());
-                        bw.close();
-                        fw.close();
-                        saved = true;
-                    }
-                    catch(Exception e){
-                        System.out.println(e);
-                    }        
-
+                if(isSaved){
+//                 
                     try {
-//                        String g  = System.getProperty("user.dir").replace("\\", "//");
-//                        Process p = Runtime.getRuntime().exec("javac "+ g + "/"+fileName);
-//                        p = Runtime.getRuntime().exec("java Simple");
-
+                        // execute the process
                         Process p = Runtime.getRuntime().exec("javac "+ path.replace("\\", "//") + "/"+fileName);
-                        // java -cp "Desktop" Simple
-                        p.waitFor();
-                        p = Runtime.getRuntime().exec("java -cp \"" + path.replace("\\", "//") +"\" " + fileName.substring(0, fileName.lastIndexOf('.')));
-//                        p = Runtime.getRuntime().exec("java " + path.replace("\\", "//") +"/" + "Simple");
-//                        System.out.println("java " + path.replace("\\", "//") +"/Simple");
-//                        System.out.println("java -cp \"" + path.replace("\\", "//") +"\" " + "Simple");
-
-                        final BufferedReader is = new BufferedReader(new InputStreamReader(p.getInputStream()));
+                        // get error msgs
+                        BufferedReader errinput = new BufferedReader(new InputStreamReader(p.getErrorStream()));
                         String line;
-                        while ((line = is.readLine()) != null) {
-                            System.out.println(line);
+                        while ((line = errinput.readLine()) != null) {
                             output.appendText(line+"\n");
                         }
-                    } catch (IOException ex) {
-                        Logger.getLogger(NotePad.class.getName()).log(Level.SEVERE, null, ex);
-                    } catch (InterruptedException ex) {
-                        Logger.getLogger(NotePad.class.getName()).log(Level.SEVERE, null, ex);
-                    }
+                        p.waitFor();    // wait for the process until finished
+                    } catch (IOException ex) {}
+                    catch (InterruptedException ex) {}
                 }
             }
         });
-//        s.seton
-        primaryStage.setTitle("FX NotePad");
-        primaryStage.setScene(s);
-        primaryStage.show();
-    }
+        
+        
+        j2Run.setOnAction(new EventHandler<ActionEvent>() {
+            // compiles again and runs
+            @Override
+            public void handle(ActionEvent event) {
+                String code = txt.getText();
+                if(code.isEmpty())
+                    return;
+                output.clear();                 // clear the terminal
+                terminal.setSelected(true);     // set terminal as selected
+                output.setVisible(true);        // show terminal if not shown
+                fileChooser.getExtensionFilters().addAll(new ExtensionFilter("All Files", "*.*"));
+                if(!isSaved){
+                    f3Save.fire();              // save if not saved
+                }
+                if(isSaved){
 
+                    try {
+                        // execute the process for compilation
+                        Process p = Runtime.getRuntime().exec("javac "+ path.replace("\\", "//") + "/"+fileName);
+                        // get error msgs
+                        BufferedReader errinput = new BufferedReader(new InputStreamReader(p.getErrorStream()));
+                        String line;
+                        while ((line = errinput.readLine()) != null) {
+                            output.appendText(line+"\n");
+                        }
+                        p.waitFor();            // wait for the process until finished
+                        
+                        // execute the process to run .class files
+                        p = Runtime.getRuntime().exec("java -cp \"" + path.replace("\\", "//") +"\" " + fileName.substring(0, fileName.lastIndexOf('.')));
+                        // get output lines
+                        final BufferedReader is = new BufferedReader(new InputStreamReader(p.getInputStream()));
+                        while ((line = is.readLine()) != null) {
+                            output.appendText(line+"\n");
+                        }
+                    } catch (IOException ex) {}
+                    catch (InterruptedException ex) {}
+                }
+            }
+        });
+
+        primaryStage.setTitle(fileName + " - FX NotePad");              // set title
+        primaryStage.setScene(s);                                       // set scene
+        primaryStage.show();                                            // show stage
+    }
+    void setEn(){
+        // set edit menu items as enabled or disabled
+        if(!txt.isUndoable())
+            e1Undo.setDisable(true);
+        else
+            e1Undo.setDisable(false);
+
+        if(!txt.isRedoable())
+            e2Redo.setDisable(true);
+        else
+            e2Redo.setDisable(false);
+        if(myClipBoard.length() == 0)
+            e5Paste.setDisable(true);
+        else
+            e5Paste.setDisable(false);
+
+        if(txt.getSelectedText().length() == 0){
+            e3Cut.setDisable(true);
+            e4Copy.setDisable(true);
+            e6Delete.setDisable(true);
+        }
+        else{
+            e3Cut.setDisable(false);
+            e4Copy.setDisable(false);
+            e6Delete.setDisable(false);
+        }
+
+        if(txt.getText().length() == 0)
+            e7SelectAll.setDisable(true);
+        else
+            e7SelectAll.setDisable(false);
+    }
     /**
      * @param args the command line arguments
      */
